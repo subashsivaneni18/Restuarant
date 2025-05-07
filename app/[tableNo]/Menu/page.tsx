@@ -70,6 +70,9 @@ const Page = () => {
   }, []);
 
   useMemo(() => {
+
+     localStorage.setItem("tableNo", tableNo);
+
     if (!isLoading && !user) {
       router.push("/api/auth/login");
     }
