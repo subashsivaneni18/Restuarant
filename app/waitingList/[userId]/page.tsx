@@ -5,7 +5,7 @@ import useSWR from "swr";
 import React, { useEffect, useRef, useState } from "react";
 import { useUser } from "@auth0/nextjs-auth0/client";
 import axios from "axios";
-import { CheckCircle, Clock, XCircle } from "lucide-react";
+import { CheckCircle, Clock, XCircle, Volume2 } from "lucide-react";
 import { pusherClient } from "@/libs/pusher";
 
 interface CartItem {
@@ -42,8 +42,8 @@ const Page = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [notification, setNotification] = useState<string | null>(null);
   const [alarmActive, setAlarmActive] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(false);
   const alarmRef = useRef<HTMLAudioElement | null>(null);
-  const [audioReady, setAudioReady] = useState(false);
 
   const {
     data: allOrders = [],
@@ -74,7 +74,7 @@ const Page = () => {
   }, [user]);
 
   useEffect(() => {
-    if (!currentUser) return;
+    if (!currentUser || !soundEnabled) return;
 
     const channel = pusherClient.subscribe("order-updates");
 
@@ -89,26 +89,26 @@ const Page = () => {
           order.id === updatedOrder.id ? updatedOrder : order
         );
 
+        // If it's a new order, add it to the list
         if (!updatedOrders.find((order) => order.id === updatedOrder.id)) {
           updatedOrders.push(updatedOrder);
         }
 
+       
+
+
         return updatedOrders;
-      }, false);
+      }, false); // false = don't revalidate from the server
 
-      const tryPlayAudio = () => {
-        if (alarmRef.current && audioReady) {
-          alarmRef.current.loop = true;
-          alarmRef.current.play().catch((e) => {
-            console.log("Autoplay error:", e);
-          });
-        } else {
-          // Retry after short delay if audio not ready
-          setTimeout(tryPlayAudio, 500);
-        }
-      };
-
-      tryPlayAudio();
+      // Only try playing audio if user has enabled sound
+       if (alarmRef.current) {
+         alarmRef.current.loop = true;
+         alarmRef.current
+           .play()
+           .catch((e) =>
+             console.log("Autoplay blocked, user interaction required:", e)
+           );
+       }
     };
 
     channel.bind("updateOrderStatus", handleStatusUpdate);
@@ -117,20 +117,35 @@ const Page = () => {
       channel.unbind("updateOrderStatus", handleStatusUpdate);
       pusherClient.unsubscribe("order-updates");
     };
-  }, [currentUser, mutate, audioReady]);
+  }, [currentUser, mutate, soundEnabled]);
+
+  const enableSound = () => {
+    const alarm = alarmRef.current;
+    if (alarm) {
+      alarm
+        .play()
+        .then(() => {
+          alarm.pause();
+          alarm.currentTime = 0;
+          setSoundEnabled(true);
+        })
+        .catch((err) => {
+          console.log("User interaction failed to enable sound:", err);
+        });
+    }
+  };
+
 
   const stopAlarm = () => {
-    if (alarmRef.current) {
-      alarmRef.current.pause();
-      alarmRef.current.currentTime = 0;
+    const alarm = alarmRef.current;
+    if (alarm) {
+      alarm.pause();
+      alarm.currentTime = 0;
     }
     setNotification(null);
     setAlarmActive(false);
   };
 
-  const handleAudioCanPlay = () => {
-    setAudioReady(true);
-  };
 
   const sortedActiveOrders = activeOrders.sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
@@ -164,12 +179,19 @@ const Page = () => {
         🧾 Your Orders
       </h2>
 
-      <audio
-        ref={alarmRef}
-        src="/sounds/completed.mp3"
-        preload="auto"
-        onCanPlayThrough={handleAudioCanPlay}
-      />
+      <audio ref={alarmRef} src="/sounds/completed.mp3" preload="auto" />
+
+      {!soundEnabled && (
+        <div className="flex justify-center mb-6">
+          <button
+            onClick={enableSound}
+            className="bg-green-600 text-white px-4 py-2 rounded-lg shadow-md hover:bg-green-700 flex items-center gap-2"
+          >
+            <Volume2 className="w-5 h-5" />
+            Enable Sound Notifications
+          </button>
+        </div>
+      )}
 
       {notification && (
         <div className="mb-6 p-4 bg-green-100 border border-green-400 text-green-700 rounded-lg text-center font-medium shadow-sm flex justify-between items-center">
