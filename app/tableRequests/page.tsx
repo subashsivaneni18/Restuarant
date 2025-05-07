@@ -1,246 +1,115 @@
 "use client";
-
 import fetcher from "@/libs/fetcher";
-import useSWR from "swr";
 import React, { useEffect, useRef, useState } from "react";
-import { useUser } from "@auth0/nextjs-auth0/client";
-import axios from "axios";
-import { CheckCircle, Clock, XCircle } from "lucide-react";
+import useSWR from "swr";
+import { Loader2 } from "lucide-react";
 import { pusherClient } from "@/libs/pusher";
 
-interface CartItem {
+interface TableRequest {
   id: string;
-  itemId: string;
-  name: string;
-  price: number;
-  quantity: number;
-}
-
-interface Order {
-  id: string;
-  cartItems: CartItem[];
+  TableNumber: number;
   userId: string;
-  paymentStatus: boolean;
   completedStatus: boolean;
-  TableNo: number;
-  TotalValue: number;
-  createdAt: string;
-}
-
-interface User {
-  id: string;
-  email: string;
-  name: string;
-  isAdmin: boolean;
-  createdAt: Date;
-  updatedAt: Date;
-  orderIds: string[];
 }
 
 const Page = () => {
-  const { user } = useUser();
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [notification, setNotification] = useState<string | null>(null);
-  const [alarmActive, setAlarmActive] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-
-  const {
-    data: allOrders = [],
-    isLoading,
-    mutate,
-  } = useSWR<Order[]>(
-    currentUser ? `/api/order?userId=${currentUser.id}` : null,
+  const { data, isLoading, mutate } = useSWR<TableRequest[]>(
+    "/api/TableCall",
     fetcher
   );
+  const previousRequestCount = useRef<number>(0);
 
-  const activeOrders = allOrders.filter((o) => !o.completedStatus);
-  const completedOrders = allOrders.filter((o) => o.completedStatus);
-
-  useEffect(() => {
-    const fetchUser = async () => {
-      if (user?.email) {
-        try {
-          const res = await axios.post("/api/currentUser", {
-            email: user.email,
-          });
-          setCurrentUser(res.data);
-        } catch (error) {
-          console.error("Error fetching user:", error);
-        }
-      }
-    };
-    fetchUser();
-  }, [user]);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!currentUser || !activeOrders) return;
+    if (data) {
+      previousRequestCount.current = data.length;
+    }
 
-    pusherClient.subscribe("order-updates");
-
-    const handleStatusUpdate = (updatedOrder: Order) => {
-      if (updatedOrder.userId !== currentUser.id) return;
-
-      setNotification(`Order for Table ${updatedOrder.TableNo} is completed!`);
-      setAlarmActive(true);
-
-      // Check if audio is not already playing
-      if (audioRef.current) {
-        audioRef.current.loop = true;
-        audioRef.current.play().catch((e) => console.log("Autoplay error:", e));
-      }
-
+    const handleNotification = () => {
+      const audio = new Audio("/sounds/ding.mp3");
+      audio.play().catch((err) => {
+        console.error("Audio playback failed:", err);
+      });
       mutate();
     };
 
-    pusherClient.bind("updateOrderStatus", handleStatusUpdate);
+    pusherClient.subscribe("adminTableRequests");
+    pusherClient.bind("newRequestAppeared", handleNotification);
 
     return () => {
-      pusherClient.unbind("updateOrderStatus", handleStatusUpdate);
-      pusherClient.unsubscribe("order-updates");
+      pusherClient.unsubscribe("adminTableRequests");
+      pusherClient.unbind("newRequestAppeared", handleNotification);
     };
-  }, [currentUser, mutate, activeOrders]);
+  }, [mutate, data]);
 
-  const stopAlarm = () => {
-    setNotification(null);
-    setAlarmActive(false);
-
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
+  const handleDelete = async (id: string) => {
+    try {
+      setLoading(true);
+      await fetch(`/api/TableCall/delete?id=${id}`, {
+        method: "DELETE",
+      });
+      setLoading(false);
+      mutate();
+    } catch (error) {
+      console.error("Failed to delete request", error);
     }
   };
 
-  const sortedActiveOrders = activeOrders.sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-  );
-  const sortedCompletedOrders = completedOrders.sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-  );
-
-  const formatDate = (date: string) => {
-    return new Date(date).toLocaleString(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "numeric",
-      second: "numeric",
-    });
-  };
-
-  if (isLoading) {
-    return <p className="text-center mt-10 text-gray-500">Loading orders...</p>;
-  }
-
-  if (!allOrders || allOrders.length === 0) {
-    return <p className="text-center mt-10 text-gray-500">No orders found.</p>;
-  }
-
   return (
-    <div className="p-6 max-w-4xl mx-auto">
-      <h2 className="text-2xl font-bold mb-6 text-center font-['raleway']">
-        🧾 Your Orders
-      </h2>
+    <div className="min-h-screen bg-gray-100 py-8 px-4 sm:px-6 lg:px-8">
+      <h1 className="text-2xl font-bold text-center text-gray-800 mb-6">
+        Table Requests
+      </h1>
 
-      {notification && (
-        <div className="mb-6 p-4 bg-green-100 border border-green-400 text-green-700 rounded-lg text-center font-medium shadow-sm flex justify-between items-center">
-          <span>{notification}</span>
-          {alarmActive && (
-            <button
-              onClick={stopAlarm}
-              className="ml-4 text-red-600 hover:text-red-800 flex items-center"
+      {isLoading ? (
+        <div className="flex items-center justify-center h-[50vh] text-gray-600">
+          <Loader2 className="animate-spin h-10 w-10 text-blue-600" />
+          <span className="ml-4 text-lg">Loading table requests...</span>
+        </div>
+      ) : data?.length === 0 ? (
+        <div className="text-center text-gray-600 text-lg mt-10">
+          No table requests found.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
+          {data?.map((request) => (
+            <div
+              key={request.id}
+              className="bg-white shadow-md rounded-lg p-4 hover:shadow-lg transition-shadow"
             >
-              <XCircle className="w-5 h-5 mr-1" />
-              Stop Alarm
-            </button>
-          )}
+              <h2 className="text-lg font-bold text-gray-800 mb-2">
+                Table #{request.TableNumber}
+              </h2>
+
+              {request.completedStatus ? (
+                <p className="text-green-600 font-semibold text-sm">
+                  Completed
+                </p>
+              ) : (
+                <>
+                  <p className="text-red-500 font-semibold text-sm mb-2">
+                    Pending
+                  </p>
+                  <button
+                    onClick={() => handleDelete(request.id)}
+                    className="bg-red-600 text-white px-4 py-2 rounded-md text-sm hover:bg-red-700 transition"
+                  >
+                    {loading ? (
+                      <div className="flex gap-2">
+                        <Loader2 className="animate-spin h-5 w-5 text-white" />
+                        "Deleting"
+                      </div>
+                    ) : (
+                      "Remove Request"
+                    )}
+                  </button>
+                </>
+              )}
+            </div>
+          ))}
         </div>
       )}
-
-      {/* Active Orders */}
-      <div>
-        <h3 className="text-xl font-semibold mb-4 text-yellow-600 flex items-center gap-2">
-          <Clock className="w-5 h-5" /> Preparing Orders
-        </h3>
-        {sortedActiveOrders.length === 0 ? (
-          <p className="text-gray-500 mb-4">No active orders.</p>
-        ) : (
-          sortedActiveOrders.map((order) => (
-            <div
-              key={order.id}
-              className="mb-6 p-5 bg-yellow-50 border border-yellow-200 rounded-2xl shadow-sm"
-            >
-              <div className="mb-2 text-lg font-semibold">
-                🍽️ Table #{order.TableNo}
-              </div>
-              <ul className="text-sm text-gray-700 space-y-1 mb-2">
-                {order.cartItems.map((item) => (
-                  <li key={item.id}>
-                    <span className="font-medium">{item.name}</span> –{" "}
-                    {item.quantity} × ₹{item.price} = ₹
-                    {item.quantity * item.price}
-                  </li>
-                ))}
-              </ul>
-              <div className="flex justify-between items-center mt-3">
-                <span className="text-green-600 font-semibold">
-                  Total: ₹{order.TotalValue}
-                </span>
-                <span className="text-yellow-700 font-semibold bg-yellow-200 px-3 py-1 rounded-full text-xs">
-                  Preparing...
-                </span>
-              </div>
-              <div className="mt-2 text-sm text-gray-600">
-                Ordered on: {formatDate(order.createdAt)}
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-
-      {/* Completed Orders */}
-      <div className="mt-10">
-        <h3 className="text-xl font-semibold mb-4 text-blue-600 flex items-center gap-2">
-          <CheckCircle className="w-5 h-5" /> Completed Orders
-        </h3>
-        {sortedCompletedOrders.length === 0 ? (
-          <p className="text-gray-500">No completed orders yet.</p>
-        ) : (
-          sortedCompletedOrders.map((order) => (
-            <div
-              key={order.id}
-              className="mb-6 p-5 bg-blue-50 border border-blue-200 rounded-2xl shadow-sm"
-            >
-              <div className="mb-2 text-lg font-semibold">
-                🍽️ Table #{order.TableNo}
-              </div>
-              <ul className="text-sm text-gray-700 space-y-1 mb-2">
-                {order.cartItems.map((item) => (
-                  <li key={item.id}>
-                    <span className="font-medium">{item.name}</span> –{" "}
-                    {item.quantity} × ₹{item.price} = ₹
-                    {item.quantity * item.price}
-                  </li>
-                ))}
-              </ul>
-              <div className="flex justify-between items-center mt-3">
-                <span className="text-green-600 font-semibold">
-                  Total: ₹{order.TotalValue}
-                </span>
-                <span className="text-blue-700 font-semibold bg-blue-200 px-3 py-1 rounded-full text-xs">
-                  Completed
-                </span>
-              </div>
-              <div className="mt-2 text-sm text-gray-600">
-                Ordered on: {formatDate(order.createdAt)}
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-
-      {/* Audio for notification */}
-      <audio ref={audioRef} src="/sounds/completed.mp3" />
     </div>
   );
 };
