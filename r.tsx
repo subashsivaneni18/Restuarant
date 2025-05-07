@@ -5,7 +5,7 @@ import useSWR from "swr";
 import React, { useEffect, useRef, useState } from "react";
 import { useUser } from "@auth0/nextjs-auth0/client";
 import axios from "axios";
-import { CheckCircle, Clock, Volume2, XCircle } from "lucide-react";
+import { CheckCircle, Clock, XCircle, Volume2 } from "lucide-react";
 import { pusherClient } from "@/libs/pusher";
 
 interface CartItem {
@@ -43,10 +43,75 @@ const Page = () => {
   const [notification, setNotification] = useState<string | null>(null);
   const [alarmActive, setAlarmActive] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(false);
-
   const alarmRef = useRef<HTMLAudioElement | null>(null);
 
-  
+  const [hasMounted, setHasMounted] = useState(false);
+  useEffect(() => {
+    setHasMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!user?.email) return;
+    const fetchUser = async () => {
+      try {
+        const res = await axios.post("/api/currentUser", { email: user.email });
+        setCurrentUser(res.data);
+      } catch (err) {
+        console.error("Failed to fetch current user:", err);
+      }
+    };
+    fetchUser();
+  }, [user]);
+
+  const {
+    data: allOrders = [],
+    isLoading,
+    mutate,
+  } = useSWR<Order[]>(
+    currentUser ? `/api/order?userId=${currentUser.id}` : null,
+    fetcher
+  );
+
+  useEffect(() => {
+    if (!currentUser || !soundEnabled) return;
+
+    const channel = pusherClient.subscribe("order-updates");
+
+    const handleStatusUpdate = (updatedOrder: Order) => {
+      if (updatedOrder.userId !== currentUser.id) return;
+
+      setNotification(`Order for Table ${updatedOrder.TableNo} is completed!`);
+      setAlarmActive(true);
+
+      mutate((prevOrders = []) => {
+        const updatedOrders = prevOrders.map((order) =>
+          order.id === updatedOrder.id ? updatedOrder : order
+        );
+
+        // If not found in the list, add it
+        if (!updatedOrders.find((o) => o.id === updatedOrder.id)) {
+          updatedOrders.push(updatedOrder);
+        }
+
+        return updatedOrders;
+      }, false);
+
+      if (alarmRef.current) {
+        alarmRef.current.loop = true;
+        alarmRef.current.play().catch((e) => {
+          console.log("Autoplay blocked:", e);
+        });
+      }
+    };
+
+    channel.bind("updateOrderStatus", handleStatusUpdate);
+
+    return () => {
+      channel.unbind("updateOrderStatus", handleStatusUpdate);
+      pusherClient.unsubscribe("order-updates");
+    };
+  }, [currentUser, soundEnabled, mutate]);
+
   const enableSound = () => {
     const alarm = alarmRef.current;
     if (alarm) {
@@ -63,79 +128,18 @@ const Page = () => {
     }
   };
 
-    const stopAlarm = () => {
-      const alarm = alarmRef.current;
-      if (alarm) {
-        alarm.pause();
-        alarm.currentTime = 0;
-      }
-      setNotification(null);
-      setAlarmActive(false);
-    };
-
-
-
-  
-
-  const {
-    data: allOrders = [],
-    isLoading,
-    mutate,
-  } = useSWR<Order[]>(
-    currentUser ? `/api/order?userId=${currentUser.id}` : null,
-    fetcher
-  );
+  const stopAlarm = () => {
+    const alarm = alarmRef.current;
+    if (alarm) {
+      alarm.pause();
+      alarm.currentTime = 0;
+    }
+    setNotification(null);
+    setAlarmActive(false);
+  };
 
   const activeOrders = allOrders.filter((o) => !o.completedStatus);
   const completedOrders = allOrders.filter((o) => o.completedStatus);
-
-  useEffect(() => {
-    const fetchUser = async () => {
-      if (user?.email) {
-        try {
-          const res = await axios.post("/api/currentUser", {
-            email: user.email,
-          });
-          setCurrentUser(res.data);
-        } catch (error) {
-          console.error("Error fetching user:", error);
-        }
-      }
-    };
-    fetchUser();
-  }, [user]);
-
-  useEffect(() => {
-    if (!currentUser || !activeOrders) return;
-
-    pusherClient.subscribe("order-updates");
-
-    const handleStatusUpdate = (updatedOrder: Order) => {
-      if (updatedOrder.userId !== currentUser.id) return;
-
-      setNotification(`Order for Table ${updatedOrder.TableNo} is completed!`);
-      setAlarmActive(true);
-
-      // Play alarm in loop
-      if (alarmRef.current) {
-        alarmRef.current.loop = true;
-        alarmRef.current.play().catch((e) =>
-          console.log("Autoplay error:", e)
-        );
-      }
-
-      mutate();
-    };
-
-    pusherClient.bind("updateOrderStatus", handleStatusUpdate);
-
-    return () => {
-      pusherClient.unbind("updateOrderStatus", handleStatusUpdate);
-      pusherClient.unsubscribe("order-updates");
-    };
-  }, [currentUser, mutate, activeOrders]);
-
-
 
   const sortedActiveOrders = activeOrders.sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
@@ -145,15 +149,18 @@ const Page = () => {
   );
 
   const formatDate = (date: string) => {
-    return new Date(date).toLocaleString(undefined, {
+    return new Intl.DateTimeFormat("en-US", {
       year: "numeric",
       month: "short",
       day: "numeric",
       hour: "numeric",
       minute: "numeric",
       second: "numeric",
-    });
+      timeZone: "UTC",
+    }).format(new Date(date));
   };
+
+  if (!hasMounted) return null;
 
   if (isLoading) {
     return <p className="text-center mt-10 text-gray-500">Loading orders...</p>;
@@ -170,8 +177,6 @@ const Page = () => {
       </h2>
 
       <audio ref={alarmRef} src="/sounds/completed.mp3" preload="auto" />
-
-      
 
       {!soundEnabled && (
         <div className="flex justify-center mb-6">
@@ -200,7 +205,7 @@ const Page = () => {
         </div>
       )}
 
-      {/* Active Orders */}
+      {/* Preparing Orders */}
       <div>
         <h3 className="text-xl font-semibold mb-4 text-yellow-600 flex items-center gap-2">
           <Clock className="w-5 h-5" /> Preparing Orders
