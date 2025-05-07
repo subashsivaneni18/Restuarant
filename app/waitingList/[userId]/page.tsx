@@ -69,32 +69,7 @@ const Page = () => {
 
   
 
-  useEffect(() => {
-    if (!currentUser) return;
 
-    pusherClient.subscribe("order-updates");
-
-    const handleStatusUpdate = (updatedOrder: Order) => {
-      if (updatedOrder.userId !== currentUser.id) return;
-      console.log("order Pusher Working")
-      const audio = new Audio("/sounds/completed.mp3");
-      audio.play().catch((err) => {
-        console.log("Failed to play Audio");
-      });
-
-      setNotification(`Order for Table ${updatedOrder.TableNo} is completed!`);
-      setTimeout(() => setNotification(null), 5000);
-
-      mutate();
-    };
-
-    pusherClient.bind("updateOrderStatus", handleStatusUpdate);
-
-    return () => {
-      pusherClient.unsubscribe("order-updates");
-      pusherClient.unbind("updateOrderStatus", handleStatusUpdate);
-    };
-  }, [currentUser, mutate]);
 
   if (isLoading) {
     return <p className="text-center mt-10 text-gray-500">Loading orders...</p>;
@@ -122,6 +97,37 @@ const Page = () => {
     };
     return new Date(date).toLocaleString(undefined, options);
   };
+
+
+
+    useEffect(() => {
+      if (!currentUser) return;
+
+      pusherClient.subscribe("order-updates");
+
+      const handleStatusUpdate = (updatedOrder: Order) => {
+        if (updatedOrder.userId !== currentUser.id) return;
+        console.log("order Pusher Working");
+        const audio = new Audio("/sounds/completed.mp3");
+        audio.play().catch((err) => {
+          console.log("Failed to play Audio");
+        });
+
+        setNotification(
+          `Order for Table ${updatedOrder.TableNo} is completed!`
+        );
+        setTimeout(() => setNotification(null), 5000);
+
+        mutate();
+      };
+
+      pusherClient.bind("updateOrderStatus", handleStatusUpdate);
+
+      return () => {
+        pusherClient.unsubscribe("order-updates");
+        pusherClient.unbind("updateOrderStatus", handleStatusUpdate);
+      };
+    }, [currentUser, mutate, activeOrders]);
 
   return (
     <div className="p-6 max-w-4xl mx-auto ">
