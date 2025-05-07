@@ -24,7 +24,7 @@ interface Order {
   completedStatus: boolean;
   TableNo: number;
   TotalValue: number;
-  createdAt: string; // Added createdAt
+  createdAt: string;
 }
 
 interface User {
@@ -47,9 +47,12 @@ const Page = () => {
     isLoading,
     mutate,
   } = useSWR<Order[]>(
-    currentUser?.id ? `/api/order?userId=${currentUser.id}` : null,
+    currentUser ? `/api/order?userId=${currentUser.id}` : null,
     fetcher
   );
+
+    const activeOrders = allOrders.filter((o) => !o.completedStatus);
+    const completedOrders = allOrders.filter((o) => o.completedStatus);
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -67,9 +70,33 @@ const Page = () => {
     fetchUser();
   }, [user]);
 
-  
+  useEffect(() => {
+    if (!currentUser) return;
+    if(!activeOrders) return;
 
+    pusherClient.subscribe("order-updates");
 
+    const handleStatusUpdate = (updatedOrder: Order) => {
+      if (updatedOrder.userId !== currentUser.id) return;
+
+      const audio = new Audio("/sounds/completed.mp3");
+      audio.play().catch(() => {
+        console.log("Failed to play Audio");
+      });
+
+      setNotification(`Order for Table ${updatedOrder.TableNo} is completed!`);
+      setTimeout(() => setNotification(null), 5000);
+
+      mutate();
+    };
+
+    pusherClient.bind("updateOrderStatus", handleStatusUpdate);
+
+    return () => {
+      pusherClient.unbind("updateOrderStatus", handleStatusUpdate);
+      pusherClient.unsubscribe("order-updates");
+    };
+  }, [currentUser, mutate,activeOrders]);
 
   if (isLoading) {
     return <p className="text-center mt-10 text-gray-500">Loading orders...</p>;
@@ -79,55 +106,25 @@ const Page = () => {
     return <p className="text-center mt-10 text-gray-500">No orders found.</p>;
   }
 
-  const activeOrders = allOrders.filter((o) => !o.completedStatus);
-  const completedOrders = allOrders.filter((o) => o.completedStatus);
 
-  // Sort orders by createdAt (most recent first)
-  const sortedActiveOrders = activeOrders.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  const sortedCompletedOrders = completedOrders.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  const sortedActiveOrders = activeOrders.sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
+  const sortedCompletedOrders = completedOrders.sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
 
   const formatDate = (date: string) => {
-    const options: Intl.DateTimeFormatOptions = {
+    return new Date(date).toLocaleString(undefined, {
       year: "numeric",
       month: "short",
       day: "numeric",
       hour: "numeric",
       minute: "numeric",
       second: "numeric",
-    };
-    return new Date(date).toLocaleString(undefined, options);
+    });
   };
-
-
-
-    useEffect(() => {
-      if (!currentUser) return;
-
-      pusherClient.subscribe("order-updates");
-
-      const handleStatusUpdate = (updatedOrder: Order) => {
-        if (updatedOrder.userId !== currentUser.id) return;
-        console.log("order Pusher Working");
-        const audio = new Audio("/sounds/completed.mp3");
-        audio.play().catch((err) => {
-          console.log("Failed to play Audio");
-        });
-
-        setNotification(
-          `Order for Table ${updatedOrder.TableNo} is completed!`
-        );
-        setTimeout(() => setNotification(null), 5000);
-
-        mutate();
-      };
-
-      pusherClient.bind("updateOrderStatus", handleStatusUpdate);
-
-      return () => {
-        pusherClient.unsubscribe("order-updates");
-        pusherClient.unbind("updateOrderStatus", handleStatusUpdate);
-      };
-    }, [currentUser, mutate, activeOrders]);
 
   return (
     <div className="p-6 max-w-4xl mx-auto ">
