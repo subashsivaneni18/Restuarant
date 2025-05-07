@@ -76,12 +76,19 @@ const Page = () => {
           {/* How It Works */}
           <section className="w-full md:w-1/2 bg-white shadow-md rounded-xl p-8 border border-gray-100">
             <h2 className="text-3xl font-bold text-emerald-700 mb-6">
-              How to Order in 4 Simple Steps
+              How to Order in 5 Simple Steps
             </h2>
             <ol className="list-decimal list-inside text-lg space-y-4 text-gray-700">
               <li>
                 <strong>Scan the QR Code:</strong> Each table has a unique QR
                 code. Scan it with your smartphone to open the menu instantly.
+              </li>
+              <li>
+                <strong>Login or Sign Up:</strong> If you're not logged in,
+                you'll be redirected to sign in. After logging in, scan the QR
+                again to autofill your table number — or enter it manually by
+                clicking on{" "}
+                <span className="text-emerald-600 font-semibold">Menu</span>.
               </li>
               <li>
                 <strong>Explore the Menu:</strong> Browse through a variety of
