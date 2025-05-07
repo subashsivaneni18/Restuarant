@@ -2,10 +2,10 @@
 
 import fetcher from "@/libs/fetcher";
 import useSWR from "swr";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useUser } from "@auth0/nextjs-auth0/client";
 import axios from "axios";
-import { CheckCircle, Clock } from "lucide-react";
+import { CheckCircle, Clock, XCircle } from "lucide-react";
 import { pusherClient } from "@/libs/pusher";
 
 interface CartItem {
@@ -41,6 +41,8 @@ const Page = () => {
   const { user } = useUser();
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [notification, setNotification] = useState<string | null>(null);
+  const [alarmActive, setAlarmActive] = useState(false);
+  const alarmRef = useRef<HTMLAudioElement | null>(null);
 
   const {
     data: allOrders = [],
@@ -51,8 +53,8 @@ const Page = () => {
     fetcher
   );
 
-    const activeOrders = allOrders.filter((o) => !o.completedStatus);
-    const completedOrders = allOrders.filter((o) => o.completedStatus);
+  const activeOrders = allOrders.filter((o) => !o.completedStatus);
+  const completedOrders = allOrders.filter((o) => o.completedStatus);
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -71,21 +73,23 @@ const Page = () => {
   }, [user]);
 
   useEffect(() => {
-    if (!currentUser) return;
-    if(!activeOrders) return;
+    if (!currentUser || !activeOrders) return;
 
     pusherClient.subscribe("order-updates");
 
     const handleStatusUpdate = (updatedOrder: Order) => {
       if (updatedOrder.userId !== currentUser.id) return;
 
-      const audio = new Audio("/sounds/completed.mp3");
-      audio.play().catch(() => {
-        console.log("Failed to play Audio");
-      });
-
       setNotification(`Order for Table ${updatedOrder.TableNo} is completed!`);
-      setTimeout(() => setNotification(null), 5000);
+      setAlarmActive(true);
+
+      // Play alarm in loop
+      if (alarmRef.current) {
+        alarmRef.current.loop = true;
+        alarmRef.current.play().catch((e) =>
+          console.log("Autoplay error:", e)
+        );
+      }
 
       mutate();
     };
@@ -96,17 +100,16 @@ const Page = () => {
       pusherClient.unbind("updateOrderStatus", handleStatusUpdate);
       pusherClient.unsubscribe("order-updates");
     };
-  }, [currentUser, mutate,activeOrders]);
+  }, [currentUser, mutate, activeOrders]);
 
-  if (isLoading) {
-    return <p className="text-center mt-10 text-gray-500">Loading orders...</p>;
-  }
-
-  if (!allOrders || allOrders.length === 0) {
-    return <p className="text-center mt-10 text-gray-500">No orders found.</p>;
-  }
-
-
+  const stopAlarm = () => {
+    if (alarmRef.current) {
+      alarmRef.current.pause();
+      alarmRef.current.currentTime = 0;
+    }
+    setNotification(null);
+    setAlarmActive(false);
+  };
 
   const sortedActiveOrders = activeOrders.sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
@@ -126,15 +129,34 @@ const Page = () => {
     });
   };
 
+  if (isLoading) {
+    return <p className="text-center mt-10 text-gray-500">Loading orders...</p>;
+  }
+
+  if (!allOrders || allOrders.length === 0) {
+    return <p className="text-center mt-10 text-gray-500">No orders found.</p>;
+  }
+
   return (
-    <div className="p-6 max-w-4xl mx-auto ">
+    <div className="p-6 max-w-4xl mx-auto">
       <h2 className="text-2xl font-bold mb-6 text-center font-['raleway']">
         🧾 Your Orders
       </h2>
 
+      <audio ref={alarmRef} src="/sounds/completed.mp3" preload="auto" />
+
       {notification && (
-        <div className="mb-6 p-4 bg-green-100 border border-green-400 text-green-700 rounded-lg text-center font-medium shadow-sm">
-          {notification}
+        <div className="mb-6 p-4 bg-green-100 border border-green-400 text-green-700 rounded-lg text-center font-medium shadow-sm flex justify-between items-center">
+          <span>{notification}</span>
+          {alarmActive && (
+            <button
+              onClick={stopAlarm}
+              className="ml-4 text-red-600 hover:text-red-800 flex items-center"
+            >
+              <XCircle className="w-5 h-5 mr-1" />
+              Stop Alarm
+            </button>
+          )}
         </div>
       )}
 
