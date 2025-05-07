@@ -53,10 +53,9 @@ export default function Home() {
     },
   });
 
-  const { data: TableRequests, mutate: mutateRequests } = useSWR<TableRequest[]>(
-    "http://localhost:3000/api/TableCall",
-    fetcher
-  );
+  const { data: TableRequests, mutate: mutateRequests } = useSWR<
+    TableRequest[]
+  >(`/api/TableCall`, fetcher);
 
 const handleStatus = useCallback(
   async (id: string) => {
