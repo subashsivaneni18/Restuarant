@@ -43,6 +43,7 @@ const Page = () => {
   const [notification, setNotification] = useState<string | null>(null);
   const [alarmActive, setAlarmActive] = useState(false);
   const alarmRef = useRef<HTMLAudioElement | null>(null);
+  const [audioReady, setAudioReady] = useState(false);
 
   const {
     data: allOrders = [],
@@ -73,9 +74,9 @@ const Page = () => {
   }, [user]);
 
   useEffect(() => {
-    if (!currentUser || !activeOrders) return;
+    if (!currentUser) return;
 
-    pusherClient.subscribe("order-updates");
+    const channel = pusherClient.subscribe("order-updates");
 
     const handleStatusUpdate = (updatedOrder: Order) => {
       if (updatedOrder.userId !== currentUser.id) return;
@@ -83,24 +84,40 @@ const Page = () => {
       setNotification(`Order for Table ${updatedOrder.TableNo} is completed!`);
       setAlarmActive(true);
 
-      // Play alarm in loop
-      if (alarmRef.current) {
-        alarmRef.current.loop = true;
-        alarmRef.current.play().catch((e) =>
-          console.log("Autoplay error:", e)
+      mutate((prevOrders = []) => {
+        const updatedOrders = prevOrders.map((order) =>
+          order.id === updatedOrder.id ? updatedOrder : order
         );
-      }
 
-      mutate();
+        if (!updatedOrders.find((order) => order.id === updatedOrder.id)) {
+          updatedOrders.push(updatedOrder);
+        }
+
+        return updatedOrders;
+      }, false);
+
+      const tryPlayAudio = () => {
+        if (alarmRef.current && audioReady) {
+          alarmRef.current.loop = true;
+          alarmRef.current.play().catch((e) => {
+            console.log("Autoplay error:", e);
+          });
+        } else {
+          // Retry after short delay if audio not ready
+          setTimeout(tryPlayAudio, 500);
+        }
+      };
+
+      tryPlayAudio();
     };
 
-    pusherClient.bind("updateOrderStatus", handleStatusUpdate);
+    channel.bind("updateOrderStatus", handleStatusUpdate);
 
     return () => {
-      pusherClient.unbind("updateOrderStatus", handleStatusUpdate);
+      channel.unbind("updateOrderStatus", handleStatusUpdate);
       pusherClient.unsubscribe("order-updates");
     };
-  }, [currentUser, mutate, activeOrders]);
+  }, [currentUser, mutate, audioReady]);
 
   const stopAlarm = () => {
     if (alarmRef.current) {
@@ -109,6 +126,10 @@ const Page = () => {
     }
     setNotification(null);
     setAlarmActive(false);
+  };
+
+  const handleAudioCanPlay = () => {
+    setAudioReady(true);
   };
 
   const sortedActiveOrders = activeOrders.sort(
@@ -143,7 +164,12 @@ const Page = () => {
         🧾 Your Orders
       </h2>
 
-      <audio ref={alarmRef} src="/sounds/completed.mp3" preload="auto" />
+      <audio
+        ref={alarmRef}
+        src="/sounds/completed.mp3"
+        preload="auto"
+        onCanPlayThrough={handleAudioCanPlay}
+      />
 
       {notification && (
         <div className="mb-6 p-4 bg-green-100 border border-green-400 text-green-700 rounded-lg text-center font-medium shadow-sm flex justify-between items-center">
