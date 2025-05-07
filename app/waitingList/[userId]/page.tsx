@@ -67,6 +67,8 @@ const Page = () => {
     fetchUser();
   }, [user]);
 
+  
+
   useEffect(() => {
     if (!currentUser) return;
 
@@ -74,7 +76,7 @@ const Page = () => {
 
     const handleStatusUpdate = (updatedOrder: Order) => {
       if (updatedOrder.userId !== currentUser.id) return;
-
+      console.log("order Pusher Working")
       const audio = new Audio("/sounds/completed.mp3");
       audio.play().catch((err) => {
         console.log("Failed to play Audio");

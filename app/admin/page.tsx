@@ -65,8 +65,10 @@ const handleStatus = useCallback(
       if (res.data.sucess === false) {
         toast.error(res.data.message || "Failed to complete order");
       } else {
+
         toast.success("Order marked as completed!");
       }
+
       await mutate();
     } catch (error) {
       toast.error("Something went wrong while updating order status");
